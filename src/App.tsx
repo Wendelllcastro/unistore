@@ -239,13 +239,21 @@ export default function App() {
   
   // Client-side Supabase credentials for standalone Netlify sync (bypassing backend server)
   const [clientSupabaseUrl, setClientSupabaseUrl] = useState<string>(() => {
-    return localStorage.getItem("client_supabase_url") || (import.meta as any).env.VITE_SUPABASE_URL || "";
+    const envUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
+    return localStorage.getItem("client_supabase_url") || envUrl;
   });
   const [clientSupabaseKey, setClientSupabaseKey] = useState<string>(() => {
-    return localStorage.getItem("client_supabase_key") || (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
+    const envKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
+    return localStorage.getItem("client_supabase_key") || envKey;
   });
   const [directCloudSyncEnabled, setDirectCloudSyncEnabled] = useState<boolean>(() => {
-    return localStorage.getItem("direct_cloud_sync_enabled") === "true";
+    const stored = localStorage.getItem("direct_cloud_sync_enabled");
+    if (stored !== null) {
+      return stored === "true";
+    }
+    const envUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
+    const envKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
+    return !!(envUrl && envKey);
   });
 
   // Search and Filter States for Public Catalog
@@ -373,7 +381,9 @@ Mangas bufantes românticas com elástico nos punhos.`
     try {
       setLoading(true);
 
-      const storedDirectSync = localStorage.getItem("direct_cloud_sync_enabled") === "true";
+      const hasEnvCredentials = !!((import.meta as any).env.VITE_SUPABASE_URL && (import.meta as any).env.VITE_SUPABASE_ANON_KEY);
+      const storedDirectSync = localStorage.getItem("direct_cloud_sync_enabled") === "true" ||
+        (localStorage.getItem("direct_cloud_sync_enabled") !== "false" && hasEnvCredentials);
       const storedUrl = localStorage.getItem("client_supabase_url") || (import.meta as any).env.VITE_SUPABASE_URL || "";
       const storedKey = localStorage.getItem("client_supabase_key") || (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
 
@@ -522,9 +532,11 @@ Mangas bufantes românticas com elástico nos punhos.`
     safeSaveUnistoreLocalDB(newState);
 
     // 3. Sync to Supabase directly if enabled and configured
-    const storedDirectSync = localStorage.getItem("direct_cloud_sync_enabled") === "true";
-    const storedUrl = localStorage.getItem("client_supabase_url") || "";
-    const storedKey = localStorage.getItem("client_supabase_key") || "";
+    const hasEnvCredentials = !!((import.meta as any).env.VITE_SUPABASE_URL && (import.meta as any).env.VITE_SUPABASE_ANON_KEY);
+    const storedDirectSync = localStorage.getItem("direct_cloud_sync_enabled") === "true" ||
+      (localStorage.getItem("direct_cloud_sync_enabled") !== "false" && hasEnvCredentials);
+    const storedUrl = localStorage.getItem("client_supabase_url") || (import.meta as any).env.VITE_SUPABASE_URL || "";
+    const storedKey = localStorage.getItem("client_supabase_key") || (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
 
     if (storedDirectSync && storedUrl && storedKey) {
       try {
