@@ -1,0 +1,6 @@
+{
+  "name": "UniStore Fardamentos",
+  "description": "Sua Satisfação é o nosso melhor uniforme. Sistema moderno de catálogo público de produtos e fardamentos com controle de estoque integrado.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
