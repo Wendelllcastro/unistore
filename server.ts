@@ -534,6 +534,58 @@ async function startServer() {
     res.status(201).json({ success: true, customer: newCustomer, db });
   });
 
+  // API: Update Customer
+  app.put("/api/customers/:id", async (req, res) => {
+    try {
+      const db = await loadDB();
+      const { id } = req.params;
+      const updatedData = req.body;
+
+      if (!db.customers) db.customers = [];
+
+      const custIdx = db.customers.findIndex(c => c.id === id);
+      if (custIdx === -1) {
+        return res.status(404).json({ success: false, message: "Cliente não encontrado" });
+      }
+
+      db.customers[custIdx] = {
+        ...db.customers[custIdx],
+        ...updatedData,
+        // Make sure we keep the original ID and registration date
+        id,
+        registeredAt: db.customers[custIdx].registeredAt || new Date().toISOString()
+      };
+
+      await saveDB(db);
+      res.json({ success: true, db });
+    } catch (err: any) {
+      console.error("Error updating customer:", err);
+      res.status(500).json({ success: false, message: err.message || "Erro ao atualizar cliente" });
+    }
+  });
+
+  // API: Delete Customer
+  app.delete("/api/customers/:id", async (req, res) => {
+    try {
+      const db = await loadDB();
+      const { id } = req.params;
+
+      if (!db.customers) db.customers = [];
+
+      const custIdx = db.customers.findIndex(c => c.id === id);
+      if (custIdx === -1) {
+        return res.status(404).json({ success: false, message: "Cliente não encontrado" });
+      }
+
+      db.customers.splice(custIdx, 1);
+      await saveDB(db);
+      res.json({ success: true, db });
+    } catch (err: any) {
+      console.error("Error deleting customer:", err);
+      res.status(500).json({ success: false, message: err.message || "Erro ao excluir cliente" });
+    }
+  });
+
   // API: Smart PDF / Text Importation using Gemini AI
   app.post("/api/import-pdf", async (req, res) => {
     const { fileData, fileName, mimeType, appendToStock } = req.body;
