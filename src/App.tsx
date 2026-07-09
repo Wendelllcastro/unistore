@@ -1766,8 +1766,8 @@ Mangas bufantes românticas com elástico nos punhos.`
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: "binary" });
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
 
@@ -1968,7 +1968,7 @@ Mangas bufantes românticas com elástico nos punhos.`
       setImportingXlsx(false);
     };
 
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const submitXlsxImport = async () => {
