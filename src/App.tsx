@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { motion, AnimatePresence } from "motion/react";
+import * as XLSX from "xlsx";
 import {
   Search,
   Grid,
@@ -43,7 +44,8 @@ import {
   Database,
   AlertTriangle,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  FileSpreadsheet
 } from "lucide-react";
 import {
   BarChart,
@@ -299,6 +301,11 @@ export default function App() {
 
   // Admin: Product Creation / Editing State
   const [showProductFormModal, setShowProductFormModal] = useState<boolean>(false);
+  const [showXlsxModal, setShowXlsxModal] = useState<boolean>(false);
+  const [importingXlsx, setImportingXlsx] = useState<boolean>(false);
+  const [xlsxFileError, setXlsxFileError] = useState<string | null>(null);
+  const [xlsxPreviewRows, setXlsxPreviewRows] = useState<any[] | null>(null);
+  const [xlsxImportResult, setXlsxImportResult] = useState<{ success: boolean; updatedCount: number; insertedCount: number } | null>(null);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [editingProductId, setEditingProductId] = useState<string>("");
   const [productForm, setProductForm] = useState({
@@ -1730,6 +1737,188 @@ Mangas bufantes românticas com elástico nos punhos.`
     }
   };
 
+  // Spreadsheet / Excel Importer logic
+  const handleImportXLSXFile = async (file: File) => {
+    setImportingXlsx(true);
+    setXlsxFileError(null);
+    setXlsxImportResult(null);
+    setXlsxPreviewRows(null);
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const rawRows: any[] = XLSX.utils.sheet_to_json(ws);
+
+        if (!rawRows || rawRows.length === 0) {
+          throw new Error("A planilha está vazia ou não pôde ser lida.");
+        }
+
+        // Helper to find column values based on flexible key names
+        const getValueByKeys = (row: any, keys: string[]) => {
+          for (const key of keys) {
+            const foundKey = Object.keys(row).find(
+              (k) => k.toLowerCase().trim() === key.toLowerCase()
+            );
+            if (foundKey !== undefined) {
+              return row[foundKey];
+            }
+          }
+          return undefined;
+        };
+
+        const parsedProducts: any[] = [];
+
+        rawRows.forEach((row, idx) => {
+          const name = getValueByKeys(row, ["nome", "name", "produto", "product", "título", "titulo", "designação"]);
+          if (!name) {
+            console.warn(`Linha ${idx + 1} ignorada: Nome do produto não encontrado.`);
+            return;
+          }
+
+          const id = getValueByKeys(row, ["id", "código", "codigo", "referência", "referencia", "id do produto"]);
+          const category = getValueByKeys(row, ["categoria", "category", "grupo", "seção", "secao"]) || "Fardamentos";
+          const color = getValueByKeys(row, ["cor", "color", "hex"]) || "#111111";
+          const description = getValueByKeys(row, ["descricao", "descrição", "description", "detalhes"]) || "";
+          
+          let priceVal = getValueByKeys(row, ["preco", "preço", "price", "valor", "custo"]);
+          let priceNum: number | undefined = undefined;
+          if (priceVal !== undefined && priceVal !== null && priceVal !== "") {
+            if (typeof priceVal === "string") {
+              const cleaned = priceVal.replace(/[R$\s]/gi, "").replace(",", ".");
+              priceNum = parseFloat(cleaned);
+            } else {
+              priceNum = Number(priceVal);
+            }
+          }
+
+          // Sizes mapping
+          const sizeP = Number(getValueByKeys(row, ["p", "tam p", "tamanho p", "p_stock", "p_estoque", "quantidade p"])) || 0;
+          const sizeM = Number(getValueByKeys(row, ["m", "tam m", "tamanho m", "m_stock", "m_estoque", "quantidade m"])) || 0;
+          const sizeG = Number(getValueByKeys(row, ["g", "tam g", "tamanho g", "g_stock", "g_estoque", "quantidade g"])) || 0;
+          const sizeGG = Number(getValueByKeys(row, ["gg", "tam gg", "tamanho gg", "gg_stock", "gg_estoque", "quantidade gg"])) || 0;
+          const sizeXG = Number(getValueByKeys(row, ["xg", "tam xg", "tamanho xg", "xg_stock", "xg_estoque", "quantidade xg"])) || 0;
+
+          parsedProducts.push({
+            id: id ? String(id).trim() : undefined,
+            name: String(name).trim(),
+            category: String(category).trim(),
+            color: String(color).trim(),
+            description: String(description).trim(),
+            price: priceNum !== undefined && !isNaN(priceNum) ? priceNum : undefined,
+            sizes: {
+              P: sizeP,
+              M: sizeM,
+              G: sizeG,
+              GG: sizeGG,
+              XG: sizeXG
+            }
+          });
+        });
+
+        if (parsedProducts.length === 0) {
+          throw new Error("Nenhum produto válido encontrado na planilha. Verifique se a coluna 'Nome' está preenchida.");
+        }
+
+        setXlsxPreviewRows(parsedProducts);
+
+      } catch (err: any) {
+        console.error("XLSX parsing failed:", err);
+        setXlsxFileError(err.message || "Erro desconhecido ao processar planilha.");
+        triggerNotification(`Falha ao ler planilha: ${err.message || err}`, "warning");
+      } finally {
+        setImportingXlsx(false);
+      }
+    };
+
+    reader.onerror = () => {
+      setXlsxFileError("Erro ao ler o arquivo selecionado.");
+      setImportingXlsx(false);
+    };
+
+    reader.readAsBinaryString(file);
+  };
+
+  const submitXlsxImport = async () => {
+    if (!xlsxPreviewRows || xlsxPreviewRows.length === 0) return;
+    
+    setImportingXlsx(true);
+    setXlsxFileError(null);
+
+    try {
+      const res = await fetch("/api/products/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ products: xlsxPreviewRows })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Erro do servidor (${res.status}) ao importar produtos.`);
+      }
+
+      const resData = await res.json();
+      
+      if (resData.success && resData.db) {
+        await saveClientDB(resData.db);
+        setXlsxImportResult({
+          success: true,
+          updatedCount: resData.updatedCount,
+          insertedCount: resData.insertedCount
+        });
+        triggerNotification(`Planilha importada! ${resData.insertedCount} criados, ${resData.updatedCount} atualizados.`, "success");
+      } else {
+        throw new Error("O servidor não retornou o estado do banco de dados atualizado.");
+      }
+    } catch (err: any) {
+      console.error("XLSX import submit failed:", err);
+      setXlsxFileError(err.message || "Erro ao salvar os produtos no banco de dados.");
+      triggerNotification(`Erro na gravação: ${err.message || err}`, "warning");
+    } finally {
+      setImportingXlsx(false);
+    }
+  };
+
+  const downloadXlsxTemplate = () => {
+    const data = [
+      {
+        "ID (Preencher apenas se for atualizar produto existente)": "prod-exemplo-1",
+        "Nome (Obrigatório)": "Bata Princesa Oxford Branca",
+        "Categoria": "Fardamentos",
+        "Preço (R$)": 89.90,
+        "Cor (Hex ou Nome)": "#ffffff",
+        "Descrição": "Bata de alta modelagem ideal para fardamento de recepção e escritórios.",
+        "P": 10,
+        "M": 15,
+        "G": 8,
+        "GG": 5,
+        "XG": 2
+      },
+      {
+        "ID (Preencher apenas se for atualizar produto existente)": "",
+        "Nome (Obrigatório)": "Scrub Masculino Oxford Marinho",
+        "Categoria": "Scrubs",
+        "Preço (R$)": 120.00,
+        "Cor (Hex ou Nome)": "#0b2240",
+        "Descrição": "Pijama cirúrgico premium em tecido Oxford respirável e resistente.",
+        "P": 5,
+        "M": 10,
+        "G": 12,
+        "GG": 4,
+        "XG": 1
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Produtos");
+    
+    XLSX.writeFile(workbook, "modelo_importacao_produtos.xlsx");
+  };
+
   // Initialize direct stock movement fast action from dashboard/product list
   const openFastStockMovement = (productId: string, initialSize: keyof ProductSizes = "M") => {
     const prod = products.find(p => p.id === productId);
@@ -2664,6 +2853,16 @@ Mangas bufantes românticas com elástico nos punhos.`
                             <Trash2 size={16} /> EXCLUIR TODOS OS PRODUTOS
                           </button>
                         )}
+                        <button
+                          onClick={() => {
+                            setXlsxFileError(null);
+                            setXlsxImportResult(null);
+                            setShowXlsxModal(true);
+                          }}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-5 py-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
+                        >
+                          <FileSpreadsheet size={16} /> IMPORTAR PLANILHA (XLSX)
+                        </button>
                         <button
                           onClick={openNewProductModal}
                           className="bg-[#111111] dark:bg-orange-600 hover:bg-neutral-800 text-white font-bold text-xs px-5 py-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
@@ -4332,6 +4531,226 @@ Mangas bufantes românticas com elástico nos punhos.`
                 </div>
 
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: IMPORTAR PRODUTOS VIA PLANILHA (XLSX) */}
+      <AnimatePresence>
+        {showXlsxModal && (
+          <div className="fixed inset-0 bg-neutral-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-neutral-900 rounded-3xl max-w-2xl w-full p-6 md:p-8 shadow-2xl border border-neutral-100 dark:border-neutral-800 relative max-h-[90vh] overflow-y-auto"
+            >
+              <button
+                onClick={() => {
+                  setShowXlsxModal(false);
+                  setXlsxPreviewRows(null);
+                  setXlsxFileError(null);
+                  setXlsxImportResult(null);
+                }}
+                className="absolute top-4 right-4 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="p-2 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                    <FileSpreadsheet size={20} />
+                  </span>
+                  <h3 className="text-lg font-bold text-neutral-900 dark:text-white">Importação em Massa via Planilha (XLSX)</h3>
+                </div>
+                <p className="text-xs text-neutral-500">
+                  Adicione novos produtos ou atualize estoque/preços de produtos existentes. O sistema fará a correspondência pelo <strong className="text-orange-500">Código ID</strong> ou pelo <strong className="text-orange-500">Nome exato</strong> do produto.
+                </p>
+              </div>
+
+              {!xlsxImportResult ? (
+                <div className="space-y-6">
+                  {/* Download Template Card */}
+                  <div className="p-4 bg-orange-50 dark:bg-orange-950/10 border border-orange-200/50 dark:border-orange-900/20 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <h4 className="text-xs font-extrabold text-neutral-900 dark:text-orange-400 uppercase tracking-wider">Planilha de Exemplo</h4>
+                      <p className="text-[11px] text-neutral-500 leading-relaxed max-w-md">
+                        Use o nosso modelo para garantir que os nomes das colunas estejam perfeitamente mapeados (Nome, Categoria, Preço, Cor, Descrição, P, M, G, GG, XG).
+                      </p>
+                    </div>
+                    <button
+                      onClick={downloadXlsxTemplate}
+                      className="whitespace-nowrap bg-[#111111] dark:bg-orange-600 hover:bg-neutral-850 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
+                    >
+                      <ArrowDown size={14} /> Baixar Modelo .XLSX
+                    </button>
+                  </div>
+
+                  {/* Drag and Drop Zone */}
+                  {!xlsxPreviewRows ? (
+                    <div>
+                      <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Selecione o arquivo da Planilha</label>
+                      <div 
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) handleImportXLSXFile(file);
+                        }}
+                        className="border-2 border-dashed border-neutral-200 hover:border-orange-500 dark:border-neutral-850 dark:hover:border-orange-500 rounded-2xl p-8 text-center transition-all cursor-pointer bg-neutral-50 dark:bg-neutral-950 relative hover:bg-white dark:hover:bg-neutral-900"
+                      >
+                        <input
+                          type="file"
+                          accept=".xlsx, .xls, .ods, .csv"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleImportXLSXFile(file);
+                          }}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        />
+                        <div className="flex flex-col items-center gap-3">
+                          <span className="p-3 bg-neutral-100 dark:bg-neutral-900 text-neutral-400 rounded-full">
+                            <UploadCloud size={24} />
+                          </span>
+                          <div>
+                            <p className="text-xs font-bold text-neutral-700 dark:text-neutral-200">Arraste a planilha para cá ou clique para selecionar</p>
+                            <p className="text-[10px] text-neutral-400 mt-1">Suporta formatos .xlsx, .xls, .ods ou .csv</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    // Display preview before confirmation
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-neutral-700 dark:text-neutral-200">
+                          Detectamos <strong className="text-emerald-500">{xlsxPreviewRows.length}</strong> produtos na planilha:
+                        </span>
+                        <button
+                          onClick={() => setXlsxPreviewRows(null)}
+                          className="text-[10px] font-bold text-red-500 hover:underline cursor-pointer"
+                        >
+                          Limpar e selecionar outro arquivo
+                        </button>
+                      </div>
+
+                      <div className="border border-neutral-150 dark:border-neutral-800 rounded-xl overflow-hidden max-h-[220px] overflow-y-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-neutral-50 dark:bg-neutral-950 text-[10px] font-bold text-neutral-500 border-b border-neutral-150 dark:border-neutral-800">
+                              <th className="p-2.5">Nome</th>
+                              <th className="p-2.5">Categoria</th>
+                              <th className="p-2.5">Preço</th>
+                              <th className="p-2.5 text-center">Grade (P-M-G-GG-XG)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-neutral-100 dark:divide-neutral-850 text-[11px] font-semibold text-neutral-800 dark:text-neutral-200">
+                            {xlsxPreviewRows.map((p, i) => (
+                              <tr key={i} className="hover:bg-neutral-50 dark:hover:bg-neutral-950/40">
+                                <td className="p-2.5 truncate max-w-[180px]">{p.name}</td>
+                                <td className="p-2.5">{p.category}</td>
+                                <td className="p-2.5 text-neutral-600 dark:text-neutral-400">
+                                  {p.price !== undefined ? `R$ ${p.price.toFixed(2)}` : "Não definido"}
+                                </td>
+                                <td className="p-2.5 text-center font-mono text-neutral-500">
+                                  {p.sizes.P}-{p.sizes.M}-{p.sizes.G}-{p.sizes.GG}-{p.sizes.XG}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="bg-emerald-50 dark:bg-emerald-950/20 p-4 border border-emerald-200/50 dark:border-emerald-900/25 rounded-2xl flex items-center justify-between gap-4 mt-2">
+                        <div className="space-y-0.5">
+                          <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400">Tudo pronto para importar</h4>
+                          <p className="text-[10px] text-neutral-500">Clique no botão para consolidar as alterações e sincronizar com o servidor.</p>
+                        </div>
+                        <button
+                          onClick={submitXlsxImport}
+                          disabled={importingXlsx}
+                          className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-neutral-400 text-white font-extrabold text-xs px-5 py-3 rounded-xl cursor-pointer transition-all flex items-center gap-2 shadow-md"
+                        >
+                          {importingXlsx ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                          CONFIRMAR IMPORTAÇÃO
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {xlsxFileError && (
+                    <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-200/50 dark:border-red-900/20 rounded-xl text-red-700 dark:text-red-400 text-xs font-bold flex items-center gap-2">
+                      <AlertTriangle size={16} />
+                      <span>{xlsxFileError}</span>
+                    </div>
+                  )}
+
+                  {importingXlsx && !xlsxPreviewRows && (
+                    <div className="flex flex-col items-center justify-center py-4 gap-2">
+                      <RefreshCw size={24} className="animate-spin text-orange-500" />
+                      <p className="text-xs font-bold text-neutral-500">Lendo e validando dados da planilha...</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                // Display success report
+                <div className="space-y-6">
+                  <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-150 dark:border-emerald-900/20 rounded-2xl flex flex-col items-center text-center gap-3">
+                    <span className="p-3 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 rounded-full">
+                      <CheckCircle size={32} />
+                    </span>
+                    <div>
+                      <h4 className="text-base font-extrabold text-neutral-900 dark:text-white">Importação Concluída com Sucesso!</h4>
+                      <p className="text-xs text-neutral-500 mt-1 max-w-md">
+                        A planilha de estoque foi processada. O histórico de movimentações também foi atualizado para registrar as alterações.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-neutral-50 dark:bg-neutral-950 rounded-2xl text-center border border-neutral-100 dark:border-neutral-850">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block">Novos Criados</span>
+                      <strong className="text-2xl font-extrabold text-neutral-900 dark:text-white mt-1 block">{xlsxImportResult.insertedCount}</strong>
+                    </div>
+                    <div className="p-4 bg-neutral-50 dark:bg-neutral-950 rounded-2xl text-center border border-neutral-100 dark:border-neutral-850">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block">Atualizados</span>
+                      <strong className="text-2xl font-extrabold text-neutral-900 dark:text-white mt-1 block">{xlsxImportResult.updatedCount}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-center pt-2">
+                    <button
+                      onClick={() => {
+                        setShowXlsxModal(false);
+                        setXlsxPreviewRows(null);
+                        setXlsxFileError(null);
+                        setXlsxImportResult(null);
+                      }}
+                      className="bg-[#111111] dark:bg-orange-600 hover:bg-neutral-800 text-white font-bold text-xs px-6 py-3 rounded-xl transition-all cursor-pointer shadow-md"
+                    >
+                      FECHAR IMPORTADOR
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!xlsxImportResult && (
+                <div className="pt-4 border-t border-neutral-100 dark:border-neutral-850 mt-6 flex justify-end gap-3">
+                  <button
+                    onClick={() => {
+                      setShowXlsxModal(false);
+                      setXlsxPreviewRows(null);
+                      setXlsxFileError(null);
+                      setXlsxImportResult(null);
+                    }}
+                    className="px-4 py-2.5 text-xs font-bold text-neutral-500 hover:text-neutral-700 cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
