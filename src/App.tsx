@@ -322,6 +322,23 @@ export default function App() {
     user: "Administrador"
   });
 
+  // Admin: Customer Editing State
+  const [showCustomerFormModal, setShowCustomerFormModal] = useState<boolean>(false);
+  const [customerFormMode, setCustomerFormMode] = useState<"create" | "edit">("edit");
+  const [editingCustomerId, setEditingCustomerId] = useState<string>("");
+  const [customerFormState, setCustomerFormState] = useState({
+    nome: "",
+    cpf: "",
+    telefone: "",
+    email: "",
+    cep: "",
+    cidade: "",
+    estado: "",
+    bairro: "",
+    rua: "",
+    numero: ""
+  });
+
   // AI Import State
   const [importing, setImporting] = useState<boolean>(false);
   const [dragOver, setDragOver] = useState<boolean>(false);
@@ -965,6 +982,35 @@ Mangas bufantes românticas com elástico nos punhos.`
     }
   };
 
+  const handleAdminCepLookup = async (cepValue: string) => {
+    const cleanCep = cepValue.replace(/\D/g, "");
+    if (cleanCep.length === 8) {
+      setLoadingCep(true);
+      try {
+        const response = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
+        const data = await response.json();
+        if (data.erro) {
+          triggerNotification("CEP não encontrado.", "warning");
+        } else {
+          setCustomerFormState(prev => ({
+            ...prev,
+            rua: data.logradouro || "",
+            bairro: data.bairro || "",
+            cidade: data.localidade || "",
+            estado: data.uf || "",
+            cep: cepValue
+          }));
+          triggerNotification("Endereço preenchido automaticamente!", "success");
+        }
+      } catch (err) {
+        console.error("Erro ao buscar CEP (admin):", err);
+        triggerNotification("Erro ao conectar com o serviço de busca de CEP.", "warning");
+      } finally {
+        setLoadingCep(false);
+      }
+    }
+  };
+
   // Record details view increments
   const viewProductDetails = async (product: Product) => {
     setSelectedProductDetails(product);
@@ -1073,6 +1119,134 @@ Mangas bufantes românticas com elástico nos punhos.`
       true,
       "Excluir"
     );
+  };
+
+  // Direct Customer delete action
+  const handleDeleteCustomer = async (id: string, name: string) => {
+    askConfirmation(
+      "Excluir Cliente",
+      `Tem certeza que deseja excluir permanentemente o cadastro do cliente "${name}"? Esta ação não pode ser desfeita!`,
+      async () => {
+        const updatedCustomers = customers.filter(c => c.id !== id);
+
+        const currentDB: DBState = {
+          products,
+          categories,
+          movements,
+          importReports,
+          customers: updatedCustomers
+        };
+
+        if (directCloudSyncEnabled && clientSupabaseUrl && clientSupabaseKey) {
+          setLoading(true);
+          try {
+            await saveClientDB(currentDB);
+            triggerNotification(`Cliente "${name}" removido com sucesso do Supabase.`, "success");
+          } catch (err: any) {
+            console.error("Direct delete customer failed", err);
+            triggerNotification(`Erro na exclusão direta: ${err.message || err}`, "warning");
+          } finally {
+            setLoading(false);
+          }
+          return;
+        }
+
+        try {
+          setLoading(true);
+          const res = await fetch(`/api/customers/${id}`, { method: "DELETE" });
+          
+          const contentType = res.headers.get("content-type");
+          if (!res.ok || (contentType && contentType.includes("text/html"))) {
+            throw new Error("HTML response");
+          }
+
+          const data = await res.json();
+          if (data.success) {
+            await fetchDBState();
+            triggerNotification(`Cliente "${name}" removido com sucesso.`, "success");
+          } else {
+            triggerNotification(data.message || "Falha ao excluir o cliente.", "warning");
+          }
+        } catch (e) {
+          console.warn("Delete customer server failed, falling back to local delete:", e);
+          
+          setCustomers(updatedCustomers);
+          safeSaveUnistoreLocalDB(currentDB);
+          triggerNotification(`Cliente "${name}" removido com sucesso (Modo Local).`, "success");
+        } finally {
+          setLoading(false);
+        }
+      },
+      true,
+      "Excluir"
+    );
+  };
+
+  // Direct Customer save / update action
+  const handleSaveCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customerFormState.nome || !customerFormState.cpf) {
+      triggerNotification("Nome e CPF são campos obrigatórios.", "warning");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const url = `/api/customers/${editingCustomerId}`;
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(customerFormState),
+      });
+
+      const contentType = res.headers.get("content-type");
+      if (!res.ok || (contentType && contentType.includes("text/html"))) {
+        throw new Error("HTML response");
+      }
+
+      const data = await res.json();
+      if (data.success) {
+        setCustomers(data.db.customers || []);
+        safeSaveUnistoreLocalDB(data.db);
+        setShowCustomerFormModal(false);
+        triggerNotification(`Cliente "${customerFormState.nome}" atualizado com sucesso!`, "success");
+      } else {
+        triggerNotification(data.message || "Falha ao salvar dados do cliente.", "warning");
+      }
+    } catch (err) {
+      console.warn("Server save customer failed, falling back to local-only update:", err);
+
+      const updatedCustomers = customers.map(c => 
+        c.id === editingCustomerId 
+          ? { ...c, ...customerFormState }
+          : c
+      );
+
+      const currentDB: DBState = {
+        products,
+        categories,
+        movements,
+        importReports,
+        customers: updatedCustomers
+      };
+
+      if (directCloudSyncEnabled && clientSupabaseUrl && clientSupabaseKey) {
+        try {
+          await saveClientDB(currentDB);
+        } catch (syncErr: any) {
+          console.error("Direct cloud sync edit customer failed", syncErr);
+        }
+      } else {
+        setCustomers(updatedCustomers);
+        safeSaveUnistoreLocalDB(currentDB);
+      }
+
+      setShowCustomerFormModal(false);
+      triggerNotification(`Cliente "${customerFormState.nome}" atualizado com sucesso (Modo Local)!`, "success");
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Direct Delete All Products action
@@ -2781,7 +2955,41 @@ Mangas bufantes românticas com elástico nos punhos.`
                                       CEP: {cust.cep} | {cust.cidade} - {cust.estado}
                                     </div>
                                   </td>
-                                  <td className="p-4 pr-6 text-right">
+                                  <td className="p-4 pr-6 text-right space-x-1.5 whitespace-nowrap">
+                                    <button
+                                      onClick={() => {
+                                        setEditingCustomerId(cust.id);
+                                        setCustomerFormMode("edit");
+                                        setCustomerFormState({
+                                          nome: cust.nome || "",
+                                          cpf: cust.cpf || "",
+                                          telefone: cust.telefone || "",
+                                          email: cust.email || "",
+                                          cep: cust.cep || "",
+                                          cidade: cust.cidade || "",
+                                          estado: cust.estado || "",
+                                          bairro: cust.bairro || "",
+                                          rua: cust.rua || "",
+                                          numero: cust.numero || ""
+                                        });
+                                        setShowCustomerFormModal(true);
+                                      }}
+                                      className="inline-flex items-center gap-1 text-[10px] font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-lg hover:underline transition-all"
+                                      title="Editar dados do cliente"
+                                    >
+                                      <Edit2 size={10} />
+                                      Editar
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleDeleteCustomer(cust.id, cust.nome)}
+                                      className="inline-flex items-center gap-1 text-[10px] font-black text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 px-2.5 py-1 rounded-lg hover:underline transition-all"
+                                      title="Excluir cliente"
+                                    >
+                                      <Trash2 size={10} />
+                                      Excluir
+                                    </button>
+
                                     {cust.telefone && (
                                       <a
                                         href={`https://wa.me/${cust.telefone.replace(/\D/g, "")}`}
@@ -3724,6 +3932,179 @@ Mangas bufantes românticas com elástico nos punhos.`
                     className="bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl cursor-pointer shadow-md shadow-orange-500/10"
                   >
                     {formMode === "create" ? "SALVAR NOVO PRODUTO" : "SALVAR ALTERAÇÕES"}
+                  </button>
+                </div>
+
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: EDIÇÃO DE CLIENTE CADASTRADO */}
+      <AnimatePresence>
+        {showCustomerFormModal && (
+          <div className="fixed inset-0 bg-neutral-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 30 }}
+              className="bg-white dark:bg-neutral-900 rounded-3xl max-w-xl w-full p-6 md:p-8 shadow-2xl border border-neutral-100 dark:border-neutral-800 relative my-8 animate-in duration-200"
+            >
+              <button
+                type="button"
+                onClick={() => setShowCustomerFormModal(false)}
+                className="absolute top-4 right-4 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="mb-6">
+                <h3 className="text-lg font-bold text-neutral-900 dark:text-white">
+                  Editar Cadastro do Cliente
+                </h3>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">Atualize as informações de cadastro, contato e endereço de entrega do cliente.</p>
+              </div>
+
+              <form onSubmit={handleSaveCustomer} className="space-y-4 text-xs">
+                
+                {/* Nome Completo */}
+                <div>
+                  <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">Nome Completo</label>
+                  <input
+                    type="text"
+                    required
+                    value={customerFormState.nome}
+                    onChange={(e) => setCustomerFormState({ ...customerFormState, nome: e.target.value })}
+                    className="w-full bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800 rounded-xl py-2 px-3 focus:ring-2 focus:ring-orange-500/10 focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+
+                {/* CPF e Telefone */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">CPF</label>
+                    <input
+                      type="text"
+                      required
+                      value={customerFormState.cpf}
+                      onChange={(e) => setCustomerFormState({ ...customerFormState, cpf: formatCpf(e.target.value) })}
+                      className="w-full bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800 rounded-xl py-2 px-3 focus:ring-2 focus:ring-orange-500/10 focus:outline-none focus:border-orange-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">Telefone</label>
+                    <input
+                      type="text"
+                      value={customerFormState.telefone}
+                      onChange={(e) => setCustomerFormState({ ...customerFormState, telefone: formatPhone(e.target.value) })}
+                      className="w-full bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800 rounded-xl py-2 px-3 focus:ring-2 focus:ring-orange-500/10 focus:outline-none focus:border-orange-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* E-mail */}
+                <div>
+                  <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">E-mail</label>
+                  <input
+                    type="email"
+                    value={customerFormState.email}
+                    onChange={(e) => setCustomerFormState({ ...customerFormState, email: e.target.value })}
+                    className="w-full bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800 rounded-xl py-2 px-3 focus:ring-2 focus:ring-orange-500/10 focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+
+                {/* CEP, Cidade, Estado */}
+                <div className="grid grid-cols-12 gap-4">
+                  <div className="col-span-4">
+                    <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">CEP</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="99999-000"
+                        value={customerFormState.cep}
+                        onChange={(e) => {
+                          const formatted = formatCep(e.target.value);
+                          setCustomerFormState({ ...customerFormState, cep: formatted });
+                          handleAdminCepLookup(formatted);
+                        }}
+                        className="w-full bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800 rounded-xl py-2 px-3 focus:ring-2 focus:ring-orange-500/10 focus:outline-none focus:border-orange-500 font-mono"
+                      />
+                      {loadingCep && (
+                        <span className="absolute right-2 top-2.5 w-3.5 h-3.5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="col-span-5">
+                    <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">Cidade</label>
+                    <input
+                      type="text"
+                      value={customerFormState.cidade}
+                      onChange={(e) => setCustomerFormState({ ...customerFormState, cidade: e.target.value })}
+                      className="w-full bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800 rounded-xl py-2 px-3 focus:ring-2 focus:ring-orange-500/10 focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+
+                  <div className="col-span-3">
+                    <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">Estado</label>
+                    <input
+                      type="text"
+                      maxLength={2}
+                      value={customerFormState.estado}
+                      onChange={(e) => setCustomerFormState({ ...customerFormState, estado: e.target.value.toUpperCase() })}
+                      className="w-full bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800 rounded-xl py-2 px-2 focus:ring-2 focus:ring-orange-500/10 focus:outline-none focus:border-orange-500 font-bold text-center"
+                    />
+                  </div>
+                </div>
+
+                {/* Bairro, Rua, Número */}
+                <div className="grid grid-cols-12 gap-4">
+                  <div className="col-span-4">
+                    <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">Bairro</label>
+                    <input
+                      type="text"
+                      value={customerFormState.bairro}
+                      onChange={(e) => setCustomerFormState({ ...customerFormState, bairro: e.target.value })}
+                      className="w-full bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800 rounded-xl py-2 px-3 focus:ring-2 focus:ring-orange-500/10 focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+
+                  <div className="col-span-5">
+                    <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">Rua / Logradouro</label>
+                    <input
+                      type="text"
+                      value={customerFormState.rua}
+                      onChange={(e) => setCustomerFormState({ ...customerFormState, rua: e.target.value })}
+                      className="w-full bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800 rounded-xl py-2 px-3 focus:ring-2 focus:ring-orange-500/10 focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+
+                  <div className="col-span-3">
+                    <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">Número</label>
+                    <input
+                      type="text"
+                      value={customerFormState.numero}
+                      onChange={(e) => setCustomerFormState({ ...customerFormState, numero: e.target.value })}
+                      className="w-full bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800 rounded-xl py-2 px-2 focus:ring-2 focus:ring-orange-500/10 focus:outline-none focus:border-orange-500 text-center font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Footer Buttons */}
+                <div className="flex justify-end gap-3 pt-4 border-t border-neutral-100 dark:border-neutral-800 mt-6">
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomerFormModal(false)}
+                    className="bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 font-extrabold text-xs px-5 py-2.5 rounded-xl cursor-pointer"
+                  >
+                    CANCELAR
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl cursor-pointer shadow-md shadow-orange-500/10"
+                  >
+                    SALVAR ALTERAÇÕES
                   </button>
                 </div>
 
