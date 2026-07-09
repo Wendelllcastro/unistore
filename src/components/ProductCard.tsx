@@ -105,6 +105,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           {name}
         </h3>
 
+        {/* Price display */}
+        {product.price !== undefined && product.price !== null && (
+          <div className="mt-1.5 flex items-center gap-1">
+            <span className="text-xs text-neutral-400 dark:text-neutral-500 font-medium">R$</span>
+            <span className="text-base font-black text-neutral-900 dark:text-white">
+              {Number(product.price).toFixed(2).replace(".", ",")}
+            </span>
+          </div>
+        )}
+
         {/* Sizes Badges / Cards - Vibrant Orange for high visibility of stock counts */}
         <div className="mt-3.5 flex flex-wrap gap-1.5">
           {sizeKeys.map((size) => {
