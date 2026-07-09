@@ -2006,6 +2006,157 @@ Mangas bufantes românticas com elástico nos punhos.`
     setImportingXlsx(true);
     setXlsxFileError(null);
 
+    // Dynamic fallback when server is unavailable / static hosting is detected (e.g., Netlify)
+    if (isApiUnavailable) {
+      try {
+        const currentDB: DBState = {
+          products: JSON.parse(JSON.stringify(products)),
+          categories: JSON.parse(JSON.stringify(categories)),
+          movements: JSON.parse(JSON.stringify(movements)),
+          importReports: JSON.parse(JSON.stringify(importReports)),
+          customers: JSON.parse(JSON.stringify(customers))
+        };
+
+        let updatedCount = 0;
+        let insertedCount = 0;
+        
+        const now = new Date();
+        const dateStr = now.toISOString().split("T")[0];
+        const timeStr = now.toTimeString().split(" ")[0];
+
+        for (const item of xlsxPreviewRows) {
+          const sizes: ProductSizes = {
+            P: item.sizes?.P !== undefined ? Number(item.sizes.P) : 0,
+            M: item.sizes?.M !== undefined ? Number(item.sizes.M) : 0,
+            G: item.sizes?.G !== undefined ? Number(item.sizes.G) : 0,
+            GG: item.sizes?.GG !== undefined ? Number(item.sizes.GG) : 0,
+            XG: item.sizes?.XG !== undefined ? Number(item.sizes.XG) : 0,
+          };
+          const totalStock = Object.values(sizes).reduce((acc, curr) => acc + (curr || 0), 0);
+
+          // Find by ID first, or by name (case-insensitive)
+          let existingProd = currentDB.products.find(p => p.id === item.id);
+          if (!existingProd && item.name) {
+            existingProd = currentDB.products.find(p => p.name.toLowerCase() === item.name.toLowerCase());
+          }
+
+          if (existingProd) {
+            // Record stock movements for difference
+            const oldSizes = existingProd.sizes || { P: 0, M: 0, G: 0, GG: 0, XG: 0 };
+            Object.entries(sizes).forEach(([size, qty]) => {
+              const oldQty = oldSizes[size as keyof ProductSizes] || 0;
+              const diff = qty - oldQty;
+              if (diff !== 0) {
+                currentDB.movements.unshift({
+                  id: `mov-${Date.now()}-${existingProd!.id}-${size}-${Math.random().toString(36).substr(2, 4)}`,
+                  productId: existingProd!.id,
+                  productName: existingProd!.name,
+                  user: "Administrador",
+                  date: dateStr,
+                  time: timeStr,
+                  quantity: Math.abs(diff),
+                  size: size as keyof ProductSizes,
+                  type: diff > 0 ? "entrada" : "saída",
+                  notes: `Ajuste de estoque via planilha XLSX (Modo Estático)`
+                });
+              }
+            });
+
+            // Update details
+            existingProd.name = item.name || existingProd.name;
+            existingProd.category = item.category || existingProd.category;
+            if (item.color) existingProd.color = item.color;
+            if (item.description !== undefined) existingProd.description = item.description;
+            if (item.price !== undefined && item.price !== null) {
+              existingProd.price = item.price === "" ? undefined : Number(item.price);
+            }
+            existingProd.sizes = sizes;
+            existingProd.totalStock = totalStock;
+            
+            updatedCount++;
+          } else {
+            // Insert new
+            const product: Product = {
+              id: item.id || `prod-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+              name: item.name || "Novo Produto Planilha",
+              category: item.category || "Sem Categoria",
+              color: item.color || "#FF6B00",
+              description: item.description || "",
+              mainImage: item.mainImage || "default_product",
+              gallery: item.gallery || [],
+              sizes,
+              totalStock,
+              createdAt: now.toISOString(),
+              views: 0,
+              price: item.price !== undefined && item.price !== null && item.price !== "" ? Number(item.price) : undefined
+            };
+
+            currentDB.products.push(product);
+
+            // Record initial movements for sizes > 0
+            Object.entries(sizes).forEach(([size, qty]) => {
+              if (qty > 0) {
+                currentDB.movements.unshift({
+                  id: `mov-${Date.now()}-${product.id}-${size}-${Math.random().toString(36).substr(2, 4)}`,
+                  productId: product.id,
+                  productName: product.name,
+                  user: "Administrador",
+                  date: dateStr,
+                  time: timeStr,
+                  quantity: qty,
+                  size: size as keyof ProductSizes,
+                  type: "entrada",
+                  notes: "Estoque inicial cadastrado via planilha XLSX (Modo Estático)"
+                });
+              }
+            });
+
+            insertedCount++;
+          }
+        }
+
+        // Recalculate category counts for all categories
+        currentDB.categories.forEach(cat => {
+          cat.productCount = currentDB.products.filter(p => p.category.toLowerCase() === cat.name.toLowerCase()).length;
+        });
+
+        // Add any new categories that are not currently in the list
+        currentDB.products.forEach(p => {
+          const catName = p.category || "Sem Categoria";
+          const catExists = currentDB.categories.some(c => c.name.toLowerCase() === catName.toLowerCase());
+          if (!catExists) {
+            currentDB.categories.push({
+              id: `cat-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+              name: catName,
+              productCount: currentDB.products.filter(prod => prod.category.toLowerCase() === catName.toLowerCase()).length
+            });
+          }
+        });
+
+        // Filter out empty categories unless they are part of initial categories
+        currentDB.categories = currentDB.categories.filter(c => c.productCount > 0 || INITIAL_CATEGORIES.some(ic => ic.name.toLowerCase() === c.name.toLowerCase()));
+
+        // Save DB client-side (Local Storage & Supabase direct sync)
+        await saveClientDB(currentDB);
+
+        setXlsxImportResult({
+          success: true,
+          updatedCount,
+          insertedCount
+        });
+        
+        triggerNotification(`Planilha importada localmente! ${insertedCount} criados, ${updatedCount} atualizados.`, "success");
+
+      } catch (err: any) {
+        console.error("Local XLSX import failed:", err);
+        setXlsxFileError(err.message || "Erro ao processar produtos localmente.");
+        triggerNotification(`Erro na gravação local: ${err.message || err}`, "warning");
+      } finally {
+        setImportingXlsx(false);
+      }
+      return;
+    }
+
     try {
       const res = await fetch("/api/products/bulk", {
         method: "POST",
