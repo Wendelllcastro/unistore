@@ -934,7 +934,7 @@ Mangas bufantes românticas com elástico nos punhos.`
     text += `*Total de Peças:* ${totalItems} un.\n`;
 
     if (isRegisteringCustomer) {
-      text += `\n*🎁 CLIENTE CADASTRADO (GANHOU DESCONTO)*\n`;
+      text += `\n*🎁 CLIENTE CADASTRADO (GANHOU 10% DE DESCONTO NA 1ª COMPRA)*\n`;
       text += `   • Nome: ${customerForm.nome || "Não informado"}\n`;
       text += `   • CPF: ${customerForm.cpf || "Não informado"}\n`;
       text += `   • Telefone: ${customerForm.telefone || "Não informado"}\n`;
@@ -2200,9 +2200,14 @@ Mangas bufantes românticas com elástico nos punhos.`
                       <div className="absolute left-1/3 bottom-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 
                       <div className="relative z-10 max-w-2xl space-y-4">
-                        <span className="inline-flex items-center gap-1.5 bg-orange-600/20 text-orange-400 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest border border-orange-500/20">
-                          <Sparkles size={10} /> Alta Modelagem Profissional
-                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="inline-flex items-center gap-1.5 bg-orange-600/20 text-orange-400 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest border border-orange-500/20">
+                            <Sparkles size={10} /> Alta Modelagem Profissional
+                          </span>
+                          <span className="inline-flex items-center gap-1.5 bg-emerald-600/20 text-emerald-400 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest border border-emerald-500/20">
+                            🎁 Ganhe 10% de Desconto na 1ª Compra!
+                          </span>
+                        </div>
                         <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight leading-none">
                           Sua Satisfação é o <br />
                           <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-amber-500">
@@ -3531,10 +3536,10 @@ Mangas bufantes românticas com elástico nos punhos.`
                         />
                         <div className="flex-1">
                           <label htmlFor="register-toggle" className="block text-xs font-black text-white cursor-pointer">
-                            Quero me cadastrar e ganhar desconto!
+                            Quero me cadastrar e ganhar 10% de desconto na primeira compra!
                           </label>
                           <p className="text-[10px] text-orange-100 mt-0.5">
-                            Preencha seus dados de entrega e contato para receber um desconto exclusivo direto de fábrica no seu WhatsApp.
+                            Preencha seus dados de entrega e contato para receber um cupom exclusivo de 10% de desconto na primeira compra direto de fábrica no seu WhatsApp.
                           </p>
                         </div>
                       </div>
@@ -3692,7 +3697,7 @@ Mangas bufantes românticas com elástico nos punhos.`
 
                         {/* Glowing Success Discount Alert */}
                         <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-150 dark:border-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-xl text-[10px] font-bold flex items-center gap-1.5 justify-center">
-                          <span>🎁 Desconto Desbloqueado!</span>
+                          <span>🎁 10% de Desconto Ativado para sua Primeira Compra!</span>
                         </div>
                       </motion.div>
                     )}
@@ -3724,7 +3729,7 @@ Mangas bufantes românticas com elástico nos punhos.`
                           {cart.reduce((total, item) => total + item.quantity, 0)} peças 
                           {isRegisteringCustomer && isFormValid && (
                             <span className="text-[9px] bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 px-1.5 py-0.5 rounded font-bold uppercase">
-                              desconto
+                              -10% Desconto
                             </span>
                           )}
                         </h4>
