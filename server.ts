@@ -256,6 +256,139 @@ async function startServer() {
     res.json({ success: true, message: "Banco de dados restaurado com sucesso!", db: state });
   });
 
+  // API: Bulk Import / Update Products
+  app.post("/api/products/bulk", async (req, res) => {
+    try {
+      const db = await loadDB();
+      const importedProducts: any[] = req.body.products || [];
+      
+      let updatedCount = 0;
+      let insertedCount = 0;
+      
+      const now = new Date();
+      const dateStr = now.toISOString().split("T")[0];
+      const timeStr = now.toTimeString().split(" ")[0];
+
+      for (const item of importedProducts) {
+        const sizes: ProductSizes = {
+          P: item.sizes?.P !== undefined ? Number(item.sizes.P) : 0,
+          M: item.sizes?.M !== undefined ? Number(item.sizes.M) : 0,
+          G: item.sizes?.G !== undefined ? Number(item.sizes.G) : 0,
+          GG: item.sizes?.GG !== undefined ? Number(item.sizes.GG) : 0,
+          XG: item.sizes?.XG !== undefined ? Number(item.sizes.XG) : 0,
+        };
+        const totalStock = Object.values(sizes).reduce((acc, curr) => acc + (curr || 0), 0);
+
+        // Find by ID first, or by name (case-insensitive)
+        let existingProd = db.products.find(p => p.id === item.id);
+        if (!existingProd && item.name) {
+          existingProd = db.products.find(p => p.name.toLowerCase() === item.name.toLowerCase());
+        }
+
+        if (existingProd) {
+          // Record stock movements for difference
+          const oldSizes = existingProd.sizes || { P: 0, M: 0, G: 0, GG: 0, XG: 0 };
+          Object.entries(sizes).forEach(([size, qty]) => {
+            const oldQty = oldSizes[size as keyof ProductSizes] || 0;
+            const diff = qty - oldQty;
+            if (diff !== 0) {
+              db.movements.unshift({
+                id: `mov-${Date.now()}-${existingProd!.id}-${size}-${Math.random().toString(36).substr(2, 4)}`,
+                productId: existingProd!.id,
+                productName: existingProd!.name,
+                user: "Administrador",
+                date: dateStr,
+                time: timeStr,
+                quantity: Math.abs(diff),
+                size: size as keyof ProductSizes,
+                type: diff > 0 ? "entrada" : "saída",
+                notes: `Ajuste de estoque via planilha XLSX`
+              });
+            }
+          });
+
+          // Update details
+          existingProd.name = item.name || existingProd.name;
+          existingProd.category = item.category || existingProd.category;
+          if (item.color) existingProd.color = item.color;
+          if (item.description !== undefined) existingProd.description = item.description;
+          if (item.price !== undefined && item.price !== null) {
+            existingProd.price = item.price === "" ? undefined : Number(item.price);
+          }
+          existingProd.sizes = sizes;
+          existingProd.totalStock = totalStock;
+          
+          updatedCount++;
+        } else {
+          // Insert new
+          const product: Product = {
+            id: item.id || `prod-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            name: item.name || "Novo Produto Planilha",
+            category: item.category || "Sem Categoria",
+            color: item.color || "#FF6B00",
+            description: item.description || "",
+            mainImage: item.mainImage || "default_product",
+            gallery: item.gallery || [],
+            sizes,
+            totalStock,
+            createdAt: now.toISOString(),
+            views: 0,
+            price: item.price !== undefined && item.price !== null && item.price !== "" ? Number(item.price) : undefined
+          };
+
+          db.products.push(product);
+
+          // Record initial movements for sizes > 0
+          Object.entries(sizes).forEach(([size, qty]) => {
+            if (qty > 0) {
+              db.movements.unshift({
+                id: `mov-${Date.now()}-${product.id}-${size}-${Math.random().toString(36).substr(2, 4)}`,
+                productId: product.id,
+                productName: product.name,
+                user: "Administrador",
+                date: dateStr,
+                time: timeStr,
+                quantity: qty,
+                size: size as keyof ProductSizes,
+                type: "entrada",
+                notes: "Estoque inicial cadastrado via planilha XLSX"
+              });
+            }
+          });
+
+          insertedCount++;
+        }
+      }
+
+      // Recalculate category counts for all categories
+      db.categories.forEach(cat => {
+        cat.productCount = db.products.filter(p => p.category.toLowerCase() === cat.name.toLowerCase()).length;
+      });
+
+      // Add any new categories that are not currently in the list
+      db.products.forEach(p => {
+        const catName = p.category || "Sem Categoria";
+        const catExists = db.categories.some(c => c.name.toLowerCase() === catName.toLowerCase());
+        if (!catExists) {
+          db.categories.push({
+            id: `cat-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            name: catName,
+            productCount: db.products.filter(prod => prod.category.toLowerCase() === catName.toLowerCase()).length
+          });
+        }
+      });
+
+      // Filter out empty categories unless they are part of initial categories
+      db.categories = db.categories.filter(c => c.productCount > 0 || INITIAL_CATEGORIES.some(ic => ic.name.toLowerCase() === c.name.toLowerCase()));
+
+      await saveDB(db);
+      res.status(200).json({ success: true, updatedCount, insertedCount, db });
+    } catch (error: any) {
+      console.error("Erro no bulk import:", error);
+      res.status(500).json({ success: false, error: error.message || error });
+    }
+  });
+
   // API: Create a Product
   app.post("/api/products", async (req, res) => {
     const db = await loadDB();
