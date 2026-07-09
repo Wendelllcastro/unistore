@@ -180,6 +180,25 @@ export default function App() {
   });
   const [notifications, setNotifications] = useState<{ id: string; text: string; type: "success" | "info" | "warning"; time: string }[]>([]);
 
+  // Store Banner States
+  const [storeBanner, setStoreBanner] = useState<string>(() => {
+    return localStorage.getItem("unistore_banner") || "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=1920&auto=format&fit=crop";
+  });
+
+  const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        setStoreBanner(base64);
+        localStorage.setItem("unistore_banner", base64);
+        triggerNotification("Banner da loja atualizado com sucesso!", "success");
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   // Auth States
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [pinInput, setPinInput] = useState<string>("");
@@ -2445,46 +2464,49 @@ Mangas bufantes românticas com elástico nos punhos.`
                     exit={{ opacity: 0 }}
                     className="p-6 md:p-8 space-y-8 max-w-7xl mx-auto w-full"
                   >
-                    {/* Immersive Modern Commercial Banner */}
-                    <div className="relative overflow-hidden rounded-3xl bg-neutral-950 text-white p-6 md:p-10 shadow-xl border border-neutral-900">
-                      {/* Decorative Background effects */}
-                      <div className="absolute right-0 top-0 w-80 h-80 bg-orange-600/25 rounded-full blur-3xl pointer-events-none" />
-                      <div className="absolute left-1/3 bottom-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-
-                      <div className="relative z-10 max-w-2xl space-y-4">
-                        <div className="flex flex-wrap gap-2">
-                          <span className="inline-flex items-center gap-1.5 bg-orange-600/20 text-orange-400 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest border border-orange-500/20">
-                            <Sparkles size={10} /> Alta Modelagem Profissional
-                          </span>
-                          <span className="inline-flex items-center gap-1.5 bg-emerald-600/20 text-emerald-400 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest border border-emerald-500/20">
-                            🎁 Ganhe 10% de Desconto na 1ª Compra!
-                          </span>
+                    {/* Immersive Store Banner (Sem Descrição Comercial Overlay) */}
+                    <div className="relative overflow-hidden rounded-3xl h-44 sm:h-64 md:h-72 lg:h-80 w-full shadow-lg border border-neutral-200/80 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-950 group">
+                      <img
+                        src={storeBanner}
+                        alt="Banner da Loja"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover transition-all duration-300 group-hover:scale-[1.01]"
+                      />
+                      
+                      {/* Admin interactive banner upload overlay */}
+                      {isAuthenticated ? (
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
+                          <label className="bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl cursor-pointer shadow-lg flex items-center gap-2 transition-all">
+                            <UploadCloud size={14} />
+                            ALTERAR IMAGEM DO BANNER
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={handleBannerUpload}
+                            />
+                          </label>
+                          {storeBanner !== "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=1920&auto=format&fit=crop" && (
+                            <button
+                              onClick={() => {
+                                const defaultImg = "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=1920&auto=format&fit=crop";
+                                setStoreBanner(defaultImg);
+                                localStorage.setItem("unistore_banner", defaultImg);
+                                triggerNotification("Banner restaurado para o padrão.", "info");
+                              }}
+                              className="bg-neutral-900/80 hover:bg-neutral-900 text-white font-bold text-xs px-4 py-2.5 rounded-xl cursor-pointer shadow-lg flex items-center gap-2 transition-all border border-neutral-700"
+                            >
+                              RESTAURAR PADRÃO
+                            </button>
+                          )}
+                          <p className="text-[10px] text-neutral-300 font-semibold bg-neutral-950/80 px-2 py-1 rounded-md">Resolução recomendada: 1920x450</p>
                         </div>
-                        <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight leading-none">
-                          Sua Satisfação é o <br />
-                          <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-amber-500">
-                            nosso melhor uniforme
-                          </span>
-                        </h1>
-                        <p className="text-xs md:text-sm text-neutral-400 font-medium leading-relaxed max-w-lg">
-                          Faça seu pedido personalizado e finalize com um dos nossos atendentes no whatsapp.
-                        </p>
-                        <div className="pt-2 flex flex-wrap gap-3">
-                          <button
-                            onClick={() => {
-                              setSelectedCategory("Todas");
-                              setSearchTerm("");
-                            }}
-                            className="bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs px-5 py-3 rounded-xl transition-all cursor-pointer shadow-md shadow-orange-500/10"
-                          >
-                            VER TODA COLEÇÃO
-                          </button>
-                          <div className="flex items-center gap-2 text-xs font-bold text-neutral-300 px-3 py-2 bg-neutral-900/60 rounded-xl border border-neutral-800">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                            {totalStockQuantity} peças disponíveis em estoque
-                          </div>
+                      ) : (
+                        <div className="absolute bottom-4 right-4 flex items-center gap-2 text-[10px] font-bold text-white px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-xl">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          {totalStockQuantity} peças em estoque
                         </div>
-                      </div>
+                      )}
                     </div>
 
                     {/* Interactive Filter Toolbar & Search */}
@@ -4192,7 +4214,7 @@ Mangas bufantes românticas com elástico nos punhos.`
 
                 {/* Description */}
                 <div>
-                  <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1">Descrição Comercial</label>
+                  <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1">Descrição do Produto</label>
                   <textarea
                     value={productForm.description}
                     onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
