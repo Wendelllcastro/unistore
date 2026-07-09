@@ -6,7 +6,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { motion, AnimatePresence } from "motion/react";
-import * as XLSX from "xlsx";
 import {
   Search,
   Grid,
@@ -1756,6 +1755,35 @@ Mangas bufantes românticas com elástico nos punhos.`
     }
   };
 
+  // Helper to load SheetJS dynamically from CDN to prevent bundle/resolve issues during build
+  const loadXLSX = (): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      if ((window as any).XLSX) {
+        resolve((window as any).XLSX);
+        return;
+      }
+      let script = document.querySelector('script[src*="xlsx.full.min.js"]') as HTMLScriptElement;
+      if (script) {
+        script.addEventListener('load', () => resolve((window as any).XLSX));
+        script.addEventListener('error', () => reject(new Error("Erro ao carregar a biblioteca de planilha de backup.")));
+        return;
+      }
+      script = document.createElement("script");
+      script.src = "https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js";
+      script.onload = () => {
+        if ((window as any).XLSX) {
+          resolve((window as any).XLSX);
+        } else {
+          reject(new Error("Biblioteca SheetJS carregada, mas objeto XLSX não encontrado."));
+        }
+      };
+      script.onerror = () => {
+        reject(new Error("Erro ao carregar a biblioteca de planilha. Verifique sua conexão com a internet."));
+      };
+      document.head.appendChild(script);
+    });
+  };
+
   // Spreadsheet / Excel Importer logic
   const handleImportXLSXFile = async (file: File) => {
     setImportingXlsx(true);
@@ -1766,13 +1794,14 @@ Mangas bufantes românticas com elástico nos punhos.`
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
+        const XLSXLib = await loadXLSX();
         const data = new Uint8Array(evt.target?.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: "array" });
+        const wb = XLSXLib.read(data, { type: "array" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
 
         // Let's read the sheet as raw array of arrays first to perform automatic header row detection
-        const rawGrid: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        const rawGrid: any[][] = XLSXLib.utils.sheet_to_json(ws, { header: 1 });
         if (!rawGrid || rawGrid.length === 0) {
           throw new Error("A planilha está vazia ou não pôde ser lida.");
         }
@@ -2011,41 +2040,47 @@ Mangas bufantes românticas com elástico nos punhos.`
     }
   };
 
-  const downloadXlsxTemplate = () => {
-    const data = [
-      {
-        "ID (Preencher apenas se for atualizar produto existente)": "prod-exemplo-1",
-        "Nome (Obrigatório)": "Bata Princesa Oxford Branca",
-        "Categoria": "Fardamentos",
-        "Preço (R$)": 89.90,
-        "Cor (Hex ou Nome)": "#ffffff",
-        "Descrição": "Bata de alta modelagem ideal para fardamento de recepção e escritórios.",
-        "P": 10,
-        "M": 15,
-        "G": 8,
-        "GG": 5,
-        "XG": 2
-      },
-      {
-        "ID (Preencher apenas se for atualizar produto existente)": "",
-        "Nome (Obrigatório)": "Scrub Masculino Oxford Marinho",
-        "Categoria": "Scrubs",
-        "Preço (R$)": 120.00,
-        "Cor (Hex ou Nome)": "#0b2240",
-        "Descrição": "Pijama cirúrgico premium em tecido Oxford respirável e resistente.",
-        "P": 5,
-        "M": 10,
-        "G": 12,
-        "GG": 4,
-        "XG": 1
-      }
-    ];
+  const downloadXlsxTemplate = async () => {
+    try {
+      const XLSXLib = await loadXLSX();
+      const data = [
+        {
+          "ID (Preencher apenas se for atualizar produto existente)": "prod-exemplo-1",
+          "Nome (Obrigatório)": "Bata Princesa Oxford Branca",
+          "Categoria": "Fardamentos",
+          "Preço (R$)": 89.90,
+          "Cor (Hex ou Nome)": "#ffffff",
+          "Descrição": "Bata de alta modelagem ideal para fardamento de recepção e escritórios.",
+          "P": 10,
+          "M": 15,
+          "G": 8,
+          "GG": 5,
+          "XG": 2
+        },
+        {
+          "ID (Preencher apenas se for atualizar produto existente)": "",
+          "Nome (Obrigatório)": "Scrub Masculino Oxford Marinho",
+          "Categoria": "Scrubs",
+          "Preço (R$)": 120.00,
+          "Cor (Hex ou Nome)": "#0b2240",
+          "Descrição": "Pijama cirúrgico premium em tecido Oxford respirável e resistente.",
+          "P": 5,
+          "M": 10,
+          "G": 12,
+          "GG": 4,
+          "XG": 1
+        }
+      ];
 
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Produtos");
-    
-    XLSX.writeFile(workbook, "modelo_importacao_produtos.xlsx");
+      const worksheet = XLSXLib.utils.json_to_sheet(data);
+      const workbook = XLSXLib.utils.book_new();
+      XLSXLib.utils.book_append_sheet(workbook, worksheet, "Produtos");
+      
+      XLSXLib.writeFile(workbook, "modelo_importacao_produtos.xlsx");
+    } catch (err: any) {
+      triggerNotification("Falha ao gerar o modelo de planilha. Verifique sua conexão.", "warning");
+      console.error(err);
+    }
   };
 
   // Initialize direct stock movement fast action from dashboard/product list
