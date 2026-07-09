@@ -308,7 +308,8 @@ export default function App() {
     description: "",
     mainImage: "default_product",
     gallery: [] as string[],
-    sizes: { P: 0, M: 0, G: 0, GG: 0, XG: 0 } as ProductSizes
+    sizes: { P: 0, M: 0, G: 0, GG: 0, XG: 0 } as ProductSizes,
+    price: "" as string | number
   });
 
   // Admin: Direct Stock Movement Modal State
@@ -924,14 +925,41 @@ Mangas bufantes românticas com elástico nos punhos.`
     text += `Olá! Gostaria de encomendar os seguintes produtos:\n\n`;
     
     let totalItems = 0;
+    let rawTotalPrice = 0;
+    let hasPrices = false;
+
     cart.forEach((item, index) => {
+      const itemPrice = item.product.price;
+      const itemHasPrice = itemPrice !== undefined && itemPrice !== null;
+      if (itemHasPrice) {
+        hasPrices = true;
+        rawTotalPrice += Number(itemPrice) * item.quantity;
+      }
+
       text += `*${index + 1}. ${item.product.name}*\n`;
       text += `   • Tamanho: *${item.size}*\n`;
-      text += `   • Quantidade: *${item.quantity}* un.\n\n`;
+      text += `   • Quantidade: *${item.quantity}* un.\n`;
+      if (itemHasPrice) {
+        text += `   • Preço Unitário: *R$ ${Number(itemPrice).toFixed(2).replace(".", ",")}*\n`;
+        text += `   • Subtotal: *R$ ${Number(Number(itemPrice) * item.quantity).toFixed(2).replace(".", ",")}*\n`;
+      }
+      text += `\n`;
       totalItems += item.quantity;
     });
     
     text += `*Total de Peças:* ${totalItems} un.\n`;
+
+    if (hasPrices) {
+      if (isRegisteringCustomer) {
+        const discountValue = rawTotalPrice * 0.10;
+        const finalPrice = rawTotalPrice - discountValue;
+        text += `*Subtotal:* R$ ${rawTotalPrice.toFixed(2).replace(".", ",")}\n`;
+        text += `*Desconto (10%):* -R$ ${discountValue.toFixed(2).replace(".", ",")}\n`;
+        text += `*Total com Desconto:* R$ ${finalPrice.toFixed(2).replace(".", ",")}\n`;
+      } else {
+        text += `*Total:* R$ ${rawTotalPrice.toFixed(2).replace(".", ",")}\n`;
+      }
+    }
 
     if (isRegisteringCustomer) {
       text += `\n*🎁 CLIENTE CADASTRADO (GANHOU 10% DE DESCONTO NA 1ª COMPRA)*\n`;
@@ -1414,7 +1442,8 @@ Mangas bufantes românticas com elástico nos punhos.`
           sizes,
           totalStock,
           createdAt: new Date().toISOString(),
-          views: 0
+          views: 0,
+          price: productForm.price !== "" ? Number(productForm.price) : undefined
         };
         currentDB.products.push(newProd);
 
@@ -1465,7 +1494,8 @@ Mangas bufantes românticas com elástico nos punhos.`
             mainImage: productForm.mainImage || oldProd.mainImage,
             gallery: productForm.gallery || oldProd.gallery || [],
             sizes: newSizes,
-            totalStock
+            totalStock,
+            price: productForm.price !== "" ? Number(productForm.price) : undefined
           };
 
           currentDB.categories.forEach(cat => {
@@ -1561,7 +1591,8 @@ Mangas bufantes românticas com elástico nos punhos.`
       description: product.description,
       mainImage: product.mainImage,
       gallery: product.gallery || [],
-      sizes: { ...product.sizes }
+      sizes: { ...product.sizes },
+      price: product.price !== undefined ? product.price : ""
     });
     setShowProductFormModal(true);
   };
@@ -1576,7 +1607,8 @@ Mangas bufantes românticas com elástico nos punhos.`
       description: "",
       mainImage: "default_product",
       gallery: [],
-      sizes: { P: 0, M: 0, G: 0, GG: 0, XG: 0 }
+      sizes: { P: 0, M: 0, G: 0, GG: 0, XG: 0 },
+      price: ""
     });
     setShowProductFormModal(true);
   };
@@ -3241,6 +3273,16 @@ Mangas bufantes românticas com elástico nos punhos.`
                       <span className="text-[11px] font-bold text-neutral-400 font-mono mt-1 block">Referência: ID-{selectedProductDetails.id}</span>
                     </div>
 
+                    {selectedProductDetails.price !== undefined && selectedProductDetails.price !== null && (
+                      <div className="flex items-baseline gap-1 mt-2.5">
+                        <span className="text-xs text-neutral-500 font-bold uppercase tracking-wider">Preço:</span>
+                        <span className="text-sm font-semibold text-neutral-500 dark:text-neutral-400">R$</span>
+                        <span className="text-2xl font-black text-neutral-900 dark:text-white">
+                          {Number(selectedProductDetails.price).toFixed(2).replace(".", ",")}
+                        </span>
+                      </div>
+                    )}
+
                     <div className="space-y-1.5">
                       <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Descrição do Produto</span>
                       <p className="text-xs text-neutral-600 dark:text-neutral-300 font-medium leading-relaxed">
@@ -3507,6 +3549,15 @@ Mangas bufantes românticas com elástico nos punhos.`
                               (máx. {maxStock} un.)
                             </span>
                           </div>
+
+                          {/* Item Price and Subtotal if defined */}
+                          {item.product.price !== undefined && item.product.price !== null && (
+                            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 pt-2.5 text-[10px] font-bold text-neutral-500 dark:text-neutral-400">
+                              <span>Unidade: R$ {Number(item.product.price).toFixed(2).replace(".", ",")}</span>
+                              <span className="text-neutral-300 dark:text-neutral-850">|</span>
+                              <span className="text-orange-600 dark:text-orange-400 font-extrabold">Subtotal: R$ {Number(Number(item.product.price) * item.quantity).toFixed(2).replace(".", ",")}</span>
+                            </div>
+                          )}
                         </div>
 
                         {/* Remove item button */}
@@ -3720,6 +3771,12 @@ Mangas bufantes românticas com elástico nos punhos.`
                   customerForm.numero.trim() !== ""
                 );
 
+                const itemsWithPrice = cart.filter(item => item.product.price !== undefined && item.product.price !== null);
+                const hasPrices = itemsWithPrice.length > 0;
+                const rawTotalPrice = itemsWithPrice.reduce((total, item) => total + (Number(item.product.price) * item.quantity), 0);
+                const discountPercent = (isRegisteringCustomer && isFormValid) ? 0.10 : 0.0;
+                const finalTotalPrice = rawTotalPrice * (1 - discountPercent);
+
                 return (
                   <div className="p-5 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/40 space-y-4">
                     <div className="flex items-center justify-between">
@@ -3733,6 +3790,18 @@ Mangas bufantes românticas com elástico nos punhos.`
                             </span>
                           )}
                         </h4>
+                        {hasPrices && (
+                          <div className="mt-1">
+                            {discountPercent > 0 && (
+                              <div className="text-[10px] text-neutral-400">
+                                Subtotal: R$ {rawTotalPrice.toFixed(2).replace(".", ",")}
+                              </div>
+                            )}
+                            <div className="text-base font-extrabold text-orange-600 dark:text-orange-400">
+                              Total: R$ {finalTotalPrice.toFixed(2).replace(".", ",")}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <button
                         onClick={clearCart}
@@ -3858,6 +3927,20 @@ Mangas bufantes românticas com elástico nos punhos.`
                     value={productForm.name}
                     onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
                     placeholder="Ex: Bata Princesa Azul Marinho"
+                    className="w-full bg-neutral-50 hover:bg-white dark:bg-neutral-950 dark:hover:bg-neutral-900 border border-neutral-200 focus:border-orange-500 dark:border-neutral-800 dark:focus:border-orange-500 rounded-xl py-2.5 px-3.5 text-xs font-semibold focus:ring-4 focus:ring-orange-500/20 focus:outline-none text-neutral-900 dark:text-white transition-all shadow-sm"
+                  />
+                </div>
+
+                {/* Price field */}
+                <div>
+                  <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-1">Preço do Produto (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={productForm.price}
+                    onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
+                    placeholder="Ex: 89.90 (Deixe em branco se não houver preço definido)"
                     className="w-full bg-neutral-50 hover:bg-white dark:bg-neutral-950 dark:hover:bg-neutral-900 border border-neutral-200 focus:border-orange-500 dark:border-neutral-800 dark:focus:border-orange-500 rounded-xl py-2.5 px-3.5 text-xs font-semibold focus:ring-4 focus:ring-orange-500/20 focus:outline-none text-neutral-900 dark:text-white transition-all shadow-sm"
                   />
                 </div>
