@@ -275,7 +275,8 @@ async function startServer() {
       sizes,
       totalStock,
       createdAt: new Date().toISOString(),
-      views: 0
+      views: 0,
+      price: newProduct.price !== undefined && newProduct.price !== null ? Number(newProduct.price) : undefined
     };
 
     db.products.push(product);
@@ -689,6 +690,7 @@ async function startServer() {
                     category: { type: Type.STRING, description: "Category of the product" },
                     color: { type: Type.STRING, description: "Hex color code" },
                     description: { type: Type.STRING, description: "Short high-quality description" },
+                    price: { type: Type.NUMBER, description: "Unit price of the product if found (e.g. 29.90), otherwise omit" },
                     sizes: {
                       type: Type.OBJECT,
                       properties: {
@@ -781,6 +783,9 @@ async function startServer() {
           oldProd.totalStock = Object.values(mergedSizes).reduce((acc, curr) => acc + (curr || 0), 0);
           oldProd.color = prodColor;
           if (prodDesc) oldProd.description = prodDesc;
+          if ((importedProd as any).price !== undefined && (importedProd as any).price !== null) {
+            oldProd.price = Number((importedProd as any).price);
+          }
           
           updatedCount++;
         } else {
@@ -799,7 +804,8 @@ async function startServer() {
             sizes: importedSizes,
             totalStock,
             createdAt: now.toISOString(),
-            views: 0
+            views: 0,
+            price: (importedProd as any).price !== undefined && (importedProd as any).price !== null ? Number((importedProd as any).price) : undefined
           };
 
           db.products.push(product);
