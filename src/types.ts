@@ -23,6 +23,7 @@ export interface Product {
   totalStock: number; // calculated automatically
   createdAt: string;
   views: number;
+  price?: number;
 }
 
 export interface Category {
