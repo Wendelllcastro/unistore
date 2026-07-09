@@ -1770,10 +1770,77 @@ Mangas bufantes românticas com elástico nos punhos.`
         const wb = XLSX.read(bstr, { type: "binary" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const rawRows: any[] = XLSX.utils.sheet_to_json(ws);
 
-        if (!rawRows || rawRows.length === 0) {
+        // Let's read the sheet as raw array of arrays first to perform automatic header row detection
+        const rawGrid: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        if (!rawGrid || rawGrid.length === 0) {
           throw new Error("A planilha está vazia ou não pôde ser lida.");
+        }
+
+        // Auto Header Row Detection: Find the first row containing common headers or non-empty cells
+        let headerRowIdx = -1;
+        let headerKeys: string[] = [];
+        
+        // Triggers to identify where the actual data table starts (header row)
+        const nameTriggers = ["nome", "name", "produto", "product", "título", "titulo", "designação", "descrição", "descricao", "código", "codigo", "referência", "referencia", "id"];
+
+        for (let r = 0; r < Math.min(rawGrid.length, 25); r++) {
+          const row = rawGrid[r];
+          if (Array.isArray(row)) {
+            const hasNameCol = row.some(cell => {
+              if (cell === undefined || cell === null) return false;
+              const s = String(cell).toLowerCase().trim();
+              return nameTriggers.some(trigger => s === trigger || s.includes(trigger));
+            });
+            if (hasNameCol) {
+              headerRowIdx = r;
+              headerKeys = row.map(cell => cell !== undefined && cell !== null ? String(cell).trim() : "");
+              break;
+            }
+          }
+        }
+
+        // Fallback: If no headers were detected, find first row that has at least 2 elements
+        if (headerRowIdx === -1) {
+          for (let r = 0; r < Math.min(rawGrid.length, 10); r++) {
+            const row = rawGrid[r];
+            if (Array.isArray(row) && row.filter(cell => cell !== undefined && cell !== null && String(cell).trim() !== "").length >= 2) {
+              headerRowIdx = r;
+              headerKeys = row.map(cell => cell !== undefined && cell !== null ? String(cell).trim() : "");
+              break;
+            }
+          }
+        }
+
+        // Last fallback: use row 0
+        if (headerRowIdx === -1) {
+          headerRowIdx = 0;
+          headerKeys = rawGrid[0] ? rawGrid[0].map(cell => cell !== undefined && cell !== null ? String(cell).trim() : "") : [];
+        }
+
+        // Map array of arrays into objects based on our dynamically-detected headers
+        const rawRows: any[] = [];
+        for (let r = headerRowIdx + 1; r < rawGrid.length; r++) {
+          const row = rawGrid[r];
+          if (!row || row.length === 0) continue;
+          
+          const hasContent = row.some(cell => cell !== undefined && cell !== null && String(cell).trim() !== "");
+          if (!hasContent) continue;
+
+          const rowObj: any = {};
+          headerKeys.forEach((key, colIdx) => {
+            if (key) {
+              rowObj[key] = row[colIdx];
+            } else {
+              // fallback for columns without name: use Index
+              rowObj[`__col_${colIdx}`] = row[colIdx];
+            }
+          });
+          rawRows.push(rowObj);
+        }
+
+        if (rawRows.length === 0) {
+          throw new Error("A planilha está vazia ou não possui linhas de dados abaixo do cabeçalho.");
         }
 
         // Helper to find column values based on flexible key names with multi-phase robust lookup
@@ -1823,18 +1890,22 @@ Mangas bufantes românticas com elástico nos punhos.`
         const parsedProducts: any[] = [];
 
         rawRows.forEach((row, idx) => {
-          const name = getValueByKeys(row, ["nome", "name", "produto", "product", "título", "titulo", "designação"]);
-          if (!name) {
+          // Robust name triggers including description fallback if they used descriptions for names
+          const name = getValueByKeys(row, [
+            "nome", "name", "produto", "product", "título", "titulo", "designação", 
+            "descrição", "descricao", "desc", "modelo", "peça", "peca", "item", "artigo"
+          ]);
+          if (!name || String(name).trim() === "") {
             console.warn(`Linha ${idx + 1} ignorada: Nome do produto não encontrado.`);
             return;
           }
 
-          const id = getValueByKeys(row, ["id", "código", "codigo", "referência", "referencia", "id do produto"]);
-          const category = getValueByKeys(row, ["categoria", "category", "grupo", "seção", "secao"]) || "Fardamentos";
-          const color = getValueByKeys(row, ["cor", "color", "hex"]) || "#111111";
-          const description = getValueByKeys(row, ["descricao", "descrição", "description", "detalhes"]) || "";
+          const id = getValueByKeys(row, ["id", "código", "codigo", "referência", "referencia", "id do produto", "ref", "cod", "sku"]);
+          const category = getValueByKeys(row, ["categoria", "category", "grupo", "seção", "secao", "tipo", "subgrupo"]) || "Fardamentos";
+          const color = getValueByKeys(row, ["cor", "color", "hex", "tonalidade"]) || "#111111";
+          const description = getValueByKeys(row, ["descricao", "descrição", "description", "detalhes", "observação", "observacao", "obs"]) || "";
           
-          let priceVal = getValueByKeys(row, ["preco", "preço", "price", "valor", "custo"]);
+          let priceVal = getValueByKeys(row, ["preco", "preço", "price", "valor", "custo", "venda"]);
           let priceNum: number | undefined = undefined;
           if (priceVal !== undefined && priceVal !== null && priceVal !== "") {
             if (typeof priceVal === "string") {
@@ -1846,11 +1917,19 @@ Mangas bufantes românticas com elástico nos punhos.`
           }
 
           // Sizes mapping
-          const sizeP = Number(getValueByKeys(row, ["p", "tam p", "tamanho p", "p_stock", "p_estoque", "quantidade p"])) || 0;
-          const sizeM = Number(getValueByKeys(row, ["m", "tam m", "tamanho m", "m_stock", "m_estoque", "quantidade m"])) || 0;
-          const sizeG = Number(getValueByKeys(row, ["g", "tam g", "tamanho g", "g_stock", "g_estoque", "quantidade g"])) || 0;
-          const sizeGG = Number(getValueByKeys(row, ["gg", "tam gg", "tamanho gg", "gg_stock", "gg_estoque", "quantidade gg"])) || 0;
-          const sizeXG = Number(getValueByKeys(row, ["xg", "tam xg", "tamanho xg", "xg_stock", "xg_estoque", "quantidade xg"])) || 0;
+          let sizeP = Number(getValueByKeys(row, ["p", "tam p", "tamanho p", "p_stock", "p_estoque", "quantidade p"])) || 0;
+          let sizeM = Number(getValueByKeys(row, ["m", "tam m", "tamanho m", "m_stock", "m_estoque", "quantidade m"])) || 0;
+          let sizeG = Number(getValueByKeys(row, ["g", "tam g", "tamanho g", "g_stock", "g_estoque", "quantidade g"])) || 0;
+          let sizeGG = Number(getValueByKeys(row, ["gg", "tam gg", "tamanho gg", "gg_stock", "gg_estoque", "quantidade gg"])) || 0;
+          let sizeXG = Number(getValueByKeys(row, ["xg", "tam xg", "tamanho xg", "xg_stock", "xg_estoque", "quantidade xg"])) || 0;
+
+          // Smart Single General Stock Column Fallback: if all size columns are 0, check if there's a general stock value
+          if (sizeP === 0 && sizeM === 0 && sizeG === 0 && sizeGG === 0 && sizeXG === 0) {
+            const generalStock = Number(getValueByKeys(row, ["estoque", "quantidade", "qtd", "total", "saldo", "disponível", "disponivel", "stock", "quantity", "quant"])) || 0;
+            if (generalStock > 0) {
+              sizeM = generalStock; // assign all to size M
+            }
+          }
 
           parsedProducts.push({
             id: id ? String(id).trim() : undefined,
@@ -1870,7 +1949,7 @@ Mangas bufantes românticas com elástico nos punhos.`
         });
 
         if (parsedProducts.length === 0) {
-          throw new Error("Nenhum produto válido encontrado na planilha. Verifique se a coluna 'Nome' está preenchida.");
+          throw new Error("Nenhum produto válido encontrado na planilha. Verifique se a coluna com o Nome do Produto ou Código está preenchida.");
         }
 
         setXlsxPreviewRows(parsedProducts);
