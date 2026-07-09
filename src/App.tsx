@@ -1757,16 +1757,47 @@ Mangas bufantes românticas com elástico nos punhos.`
           throw new Error("A planilha está vazia ou não pôde ser lida.");
         }
 
-        // Helper to find column values based on flexible key names
+        // Helper to find column values based on flexible key names with multi-phase robust lookup
         const getValueByKeys = (row: any, keys: string[]) => {
-          for (const key of keys) {
-            const foundKey = Object.keys(row).find(
-              (k) => k.toLowerCase().trim() === key.toLowerCase()
+          const searchKeys = keys.map(k => k.toLowerCase().trim());
+          const rowKeys = Object.keys(row);
+          
+          // Phase 1: Exact case-insensitive match
+          for (const searchKey of searchKeys) {
+            const foundKey = rowKeys.find(
+              (rk) => rk.toLowerCase().trim() === searchKey
             );
             if (foundKey !== undefined) {
               return row[foundKey];
             }
           }
+          
+          // Phase 2: Starts with / prefixed match (e.g., "nome" matches "Nome (Obrigatório)")
+          for (const searchKey of searchKeys) {
+            const foundKey = rowKeys.find(
+              (rk) => {
+                const normalizedRk = rk.toLowerCase().trim();
+                return normalizedRk.startsWith(searchKey) || searchKey.startsWith(normalizedRk);
+              }
+            );
+            if (foundKey !== undefined) {
+              return row[foundKey];
+            }
+          }
+
+          // Phase 3: Generic substring fallback match (e.g., "preço" matches "Preço (R$)")
+          for (const searchKey of searchKeys) {
+            const foundKey = rowKeys.find(
+              (rk) => {
+                const normalizedRk = rk.toLowerCase().trim();
+                return normalizedRk.includes(searchKey) || searchKey.includes(normalizedRk);
+              }
+            );
+            if (foundKey !== undefined) {
+              return row[foundKey];
+            }
+          }
+
           return undefined;
         };
 
