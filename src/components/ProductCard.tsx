@@ -45,11 +45,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         <motion.div
           whileHover={{ scale: 1.05 }}
           transition={{ duration: 0.4, ease: "easeOut" }}
-          className="w-full h-56 cursor-pointer flex items-center justify-center p-2"
+          className={`w-full h-56 cursor-pointer flex items-center justify-center ${mainImage && mainImage.startsWith("data:image") ? "p-0" : "p-2"}`}
           onClick={() => onViewProduct(product)}
         >
           {mainImage && mainImage.startsWith("data:image") ? (
-            <img src={mainImage} alt={name} className="w-full h-full object-contain rounded-xl drop-shadow-md" />
+            <img src={mainImage} alt={name} className="w-full h-full object-cover rounded-xl" />
           ) : (
             <ClothesVisualizer category={category} color={color} className="h-full" />
           )}
