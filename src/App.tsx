@@ -3724,20 +3724,26 @@ Mangas bufantes românticas com elástico nos punhos.`
                       className="w-full h-72 cursor-zoom-in"
                     >
                       {/* Check if customized base64 picture is available, else render custom vector visualizer */}
-                      {selectedProductDetails.mainImage && selectedProductDetails.mainImage.startsWith("data:image") ? (
-                        <img
-                          src={selectedProductDetails.mainImage}
-                          alt={selectedProductDetails.name}
-                          className="w-full h-full object-contain rounded-2xl drop-shadow-2xl"
-                        />
-                      ) : (
-                        <ClothesVisualizer
-                          category={selectedProductDetails.category}
-                          color={selectedProductDetails.color}
-                          showPattern={selectedProductDetails.name.toLowerCase().includes("mônica") || selectedProductDetails.name.toLowerCase().includes("barbie")}
-                          className="bg-transparent border-none"
-                        />
-                      )}
+                      {(() => {
+                        const currentDisplayImage = selectedGalleryIndex === 0
+                          ? selectedProductDetails.mainImage
+                          : (selectedProductDetails.gallery && selectedProductDetails.gallery[selectedGalleryIndex - 1]) || selectedProductDetails.mainImage;
+
+                        return currentDisplayImage && currentDisplayImage.startsWith("data:image") ? (
+                          <img
+                            src={currentDisplayImage}
+                            alt={selectedProductDetails.name}
+                            className="w-full h-full object-cover rounded-2xl drop-shadow-2xl"
+                          />
+                        ) : (
+                          <ClothesVisualizer
+                            category={selectedProductDetails.category}
+                            color={selectedProductDetails.color}
+                            showPattern={selectedProductDetails.name.toLowerCase().includes("mônica") || selectedProductDetails.name.toLowerCase().includes("barbie")}
+                            className="bg-transparent border-none"
+                          />
+                        );
+                      })()}
                     </motion.div>
                     
                     {/* Hover tooltip for zoom */}
