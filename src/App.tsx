@@ -1889,9 +1889,11 @@ Mangas bufantes românticas com elástico nos punhos.`
           
           // Phase 2: Starts with / prefixed match (e.g., "nome" matches "Nome (Obrigatório)")
           for (const searchKey of searchKeys) {
+            if (searchKey.length <= 2) continue;
             const foundKey = rowKeys.find(
               (rk) => {
                 const normalizedRk = rk.toLowerCase().trim();
+                if (normalizedRk.length <= 2) return false;
                 return normalizedRk.startsWith(searchKey) || searchKey.startsWith(normalizedRk);
               }
             );
@@ -1902,9 +1904,11 @@ Mangas bufantes românticas com elástico nos punhos.`
 
           // Phase 3: Generic substring fallback match (e.g., "preço" matches "Preço (R$)")
           for (const searchKey of searchKeys) {
+            if (searchKey.length <= 2) continue;
             const foundKey = rowKeys.find(
               (rk) => {
                 const normalizedRk = rk.toLowerCase().trim();
+                if (normalizedRk.length <= 2) return false;
                 return normalizedRk.includes(searchKey) || searchKey.includes(normalizedRk);
               }
             );
